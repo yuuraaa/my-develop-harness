@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "github": {
+    "writeTokenEnv": "HARNESS_GITHUB_WRITE_TOKEN",
+    "readTokenEnv": "HARNESS_GITHUB_READ_TOKEN",
+    "maxContextBytes": 10485760,
+    "labels": {
+      "enabled": "harness:enabled",
+      "ready": "harness:ready",
+      "running": "harness:running",
+      "blocked": "harness:blocked",
+      "stopped": "harness:stopped",
+      "review": "harness:review"
+    }
+  },
+  "repositories": {
+    "example/product": { "pushRemote": "origin", "requiredSources": [] }
+  },
+  "watch": { "repositories": ["example/product"] },
+  "repository": { "searchRoots": ["../develop"], "cloneRoot": "../develop" },
+  "execution": {}
+}
