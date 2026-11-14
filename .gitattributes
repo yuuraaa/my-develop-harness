@@ -1,0 +1,2 @@
+# unified diffの空行コンテキストは1文字の空白を必要とする。
+patches/*.patch whitespace=-blank-at-eol

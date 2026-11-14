@@ -1,0 +1,9 @@
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates liblzma5 util-linux bsdutils \
+    # GHSA-5qpq-xqfv-j9pgのDebian bookworm修正版以降を要求する。
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' liblzma5)" ge '5.4.1-1+deb12u2' \
+    && rm -rf /var/lib/apt/lists/*
+USER 1000:1000
+WORKDIR /tmp
+CMD ["/artifacts/acceptance"]

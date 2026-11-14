@@ -1,0 +1,33 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    user: "1000:1000"
+    working_dir: /workspace
+    environment:
+      BUN_INSTALL_CACHE_DIR: /tmp/bun-cache
+    # テストの同期書き込みをメモリ上で行う。代役CLIの起動にexecが必要。
+    tmpfs:
+      - /tmp:size=1g,mode=1777,exec
+    volumes:
+      - .:/workspace
+      - dev-node-modules:/workspace/node_modules
+      - dev-dist:/workspace/dist
+    init: true
+    command: ["sleep", "infinity"]
+
+  standalone:
+    profiles: ["standalone"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.standalone
+    user: "1000:1000"
+    volumes:
+      - ./build:/artifacts:ro
+    network_mode: none
+    init: true
+
+volumes:
+  dev-node-modules:
+  dev-dist:

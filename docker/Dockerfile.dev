@@ -1,0 +1,12 @@
+FROM oven/bun:1.4.3@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598
+# 公式イメージのnode→bun互換リンクも除去し、Node不在を隠さない。
+RUN rm /usr/local/bun-node-fallback-bin/node \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates liblzma5 util-linux bsdutils \
+    # GHSA-5qpq-xqfv-j9pgのDebian trixie修正版以降を要求する。
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' liblzma5)" ge '5.8.1-1+deb13u2' \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /workspace/node_modules /workspace/dist /tmp/bun-cache \
+    && chown -R 1000:1000 /workspace /tmp/bun-cache
+WORKDIR /workspace
+USER 1000:1000

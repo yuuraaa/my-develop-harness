@@ -1,0 +1,5 @@
+# standalone検証でも一時領域をtmpfsにする。devはcompose.yamlで設定済み。
+services:
+  standalone:
+    tmpfs:
+      - /tmp:size=1g,mode=1777,exec

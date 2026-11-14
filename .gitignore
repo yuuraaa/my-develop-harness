@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# 認証・個人設定
+.env
+.env.*
+!.env.example
+.npmrc
+.codex/
+.agents/
+.aws/
+*.pem
+*.key
+
+# 実行記録・作業環境（本来は ~/.harness/ に保存）
+.harness/
+runs/
+worktrees/
+config.json
+*.log
