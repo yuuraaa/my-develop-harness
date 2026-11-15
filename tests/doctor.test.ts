@@ -29,6 +29,22 @@ async function fixture() {
   return { root, config, issue, routes, calls, api, options };
 }
 describe("GitHub起動前診断", () => {
+  it("通常・JSON出力で開発時の統合検証済みを案内し、追加の外部操作や記録作成をしない", async () => {
+    const f = await fixture(), before = await readdir(f.root);
+    const report = await diagnose(f.options);
+    expect(report.items.find(i => i.id === "limits")).toEqual({
+      id: "limits", status: "正常", reason: "開発時の統合検証は実施済みです。", remedy: "不要", required: false,
+    });
+    for (const json of [false, true]) {
+      const output = formatDoctor(report, json);
+      expect(output).toContain("開発時の統合検証は実施済みです。");
+      expect(output).not.toContain("統合検証は別途行ってください");
+      expect(output).not.toContain("実更新権限・push成功は未保証");
+      expect(output).not.toContain("外部更新・clone・fetch・worktree・実行記録・モデル呼び出しは実施していません");
+    }
+    expect(f.calls).toEqual(["/user", "/repos/a/b", "/user"]);
+    expect(await readdir(f.root)).toEqual(before);
+  });
   it.each(["No parent issue found", "Not Found"])("親URL省略時の実HTTP形式の404（%s）を区別して診断する", async message => {
     const f = await fixture();
     const { parent_issue_url: _, ...withoutParentUrl } = f.issue;

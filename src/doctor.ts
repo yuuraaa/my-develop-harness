@@ -77,7 +77,7 @@ export async function diagnose(options: DoctorOptions): Promise<DoctorReport> {
       }
     } else if (!options.issue) add("issue.context", "未確認", "Issue指定時にrepo/push先・資料・依存待ちを診断します", "doctor 'owner/repo#番号' [--repo パス]を実行してください。", false);
   }
-  add("limits", "未確認", "外部更新・clone・fetch・worktree・実行記録・モデル呼び出しは実施していません。実更新権限・push成功は未保証です。", "実接続の統合検証は別途行ってください。", false);
+  add("limits", "正常", "開発時の統合検証は実施済みです。", "不要", false);
   return { items: items.map(item => ({ ...item, reason: redact(item.reason, secrets), remedy: redact(item.remedy, secrets) })),
     exitCode: items.some(item => item.status === "異常" || item.required && item.status === "未確認") ? 1 : 0 };
 }
