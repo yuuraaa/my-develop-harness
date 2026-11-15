@@ -53,6 +53,35 @@ describe("GitHub新設定", () => {
 });
 
 describe("GitHub通信", () => {
+  it("GET /parentの404でmessageが厳密に親なしを示す場合だけ理由を保持し、生の本文は残さない", async () => {
+    const endpoint = "/repos/a/b/issues/1/parent";
+    const cases = [
+      { status: 404, body: { message: "No parent issue found", secret: credentials }, reason: "no_parent_issue" },
+      { status: 404, body: { message: "Not Found", detail: "No parent issue found" }, reason: null },
+      { status: 404, body: { message: "No parent issue found " }, reason: null },
+      { status: 404, body: { message: ["No parent issue found"] }, reason: null },
+      { status: 404, body: null, reason: null },
+      { status: 404, body: {}, reason: null },
+      { status: 404, body: "No parent issue found", reason: null },
+      { status: 403, body: { message: "No parent issue found" }, reason: null },
+      { status: 404, body: { message: "No parent issue found" }, endpoint: "/repos/a/b/issues/1", reason: null },
+      { status: 404, body: { message: "No parent issue found" }, method: "DELETE", reason: null },
+    ];
+    for (const test of cases) {
+      let calls = 0;
+      const events: GitHubRecord[] = [];
+      const client = await GitHubClient.create(config(), { env: credentials,
+        run: async () => { calls++; return reply(test.status, test.body); }, record: async event => { events.push(event); } });
+      const request = test.method === "DELETE" ? client.update("DELETE", endpoint, {}) : client.get(test.endpoint ?? endpoint);
+      await expect(request).rejects.toMatchObject({ kind: test.status === 403 ? "permission" : "request", reason: test.reason });
+      expect(JSON.stringify(await request.catch(error => error))).not.toContain("fixture-secret");
+      expect(calls).toBe(1);
+      expect(JSON.stringify(events)).not.toContain("fixture-secret");
+    }
+    const invalid = await GitHubClient.create(config(), { env: credentials,
+      run: async () => ({ ...reply(404, {}), stdout: 'HTTP/2 404 Missing\r\nContent-Type: application/json\r\n\r\n{"message":"No parent issue found"' }) });
+    await expect(invalid.get(endpoint)).rejects.toMatchObject({ kind: "request", status: 404, reason: null });
+  });
   it("全ページ取得・専用認証・hostname固定・stdinによるJSON更新", async () => {
     const calls: { args: string[]; env: Record<string, string>; input?: string }[] = [];
     const run: GitHubProcess = async (program, args, env, input) => {

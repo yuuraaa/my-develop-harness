@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parseGitHubConfig } from "../src/github-config.js";
 import { GitHubClient, GitHubError } from "../src/github.js";
-import { IssueContextError, normalizeIssueReference, fullSha, githubId, type IssueApi } from "../src/github-issue.js";
+import { IssueReader, IssueContextError, normalizeIssueReference, fullSha, githubId, type IssueApi } from "../src/github-issue.js";
 import { fetchIssueContext, evaluateIssueEligibility, localCommitFiles, saveIssueContext } from "../src/github-context.js";
 
 const sha = "a".repeat(40), base = "b".repeat(40), blob = "c".repeat(40);
@@ -29,7 +29,7 @@ function fixture() {
   routes.set("/repos/a/b/collaborators/writer/permission", { permission: "write", user: { id: 1, login: "writer" } });
   for (const n of [1, 2, 3]) {
     const path = `/repos/a/b/issues/${n}`;
-    routes.set(path, issue(n)); routes.set(`${path}/parent`, new GitHubError("request", null, 404));
+    routes.set(path, issue(n)); routes.set(`${path}/parent`, new GitHubError("request", null, 404, "no_parent_issue"));
     for (const suffix of ["comments", "sub_issues", "dependencies/blocked_by"]) routes.set(`${path}/${suffix}?per_page=100`, []);
   }
   const api = {
@@ -50,6 +50,30 @@ function fixture() {
 }
 
 describe("Issue識別子と文脈取得", () => {
+  it("親URL省略・nullでも明示的な親なし404だけを採用し、不明な404や権限エラーは伝播する", async () => {
+    for (const parentUrl of [undefined, null, "https://api.github.com/repos/c/d/issues/9"]) {
+      for (const error of [new GitHubError("request", null, 404, "no_parent_issue"),
+        new GitHubError("request", null, 404), new GitHubError("permission"), new GitHubError("transport")]) {
+        const f = fixture(), reader = new IssueReader(f.api);
+        const raw = issue(1, { parent_issue_url: parentUrl });
+        if (parentUrl === undefined) delete (raw as { parent_issue_url?: unknown }).parent_issue_url;
+        const target = await reader.issue(raw);
+        f.routes.set("/repos/a/b/issues/1/parent", error);
+        if (parentUrl == null && error.reason === "no_parent_issue") expect(await reader.parent(target)).toBeNull();
+        else await expect(reader.parent(target)).rejects.toBe(error);
+      }
+    }
+  });
+  it("親URLが省略されても可視の親を取得し、明示URLの不一致やnullとの矛盾は拒否する", async () => {
+    for (const parentUrl of [undefined, null, "https://api.github.com/repos/a/b/issues/3", "https://api.github.com/repos/c/d/issues/9"]) {
+      const f = fixture(), reader = new IssueReader(f.api);
+      const target = await reader.issue(issue(1, { parent_issue_url: parentUrl }));
+      f.routes.set("/repos/a/b/issues/1/parent", issue(3));
+      if (parentUrl === undefined || parentUrl === "https://api.github.com/repos/a/b/issues/3")
+        expect(await reader.parent(target)).toMatchObject({ number: 3 });
+      else await expect(reader.parent(target)).rejects.toMatchObject({ kind: "response" });
+    }
+  });
   it("2表記を一意化し、PR・旧指定・URL付加情報を拒否", () => {
     expect(normalizeIssueReference("https://github.com/A/B/issues/12/")).toEqual(normalizeIssueReference("a/b#12"));
     for (const v of ["12", "12", "a/b#01", "a/b#0", "a/b#9007199254740992", "https://github.com/a/b/pull/12",
@@ -84,13 +108,14 @@ describe("Issue識別子と文脈取得", () => {
     f.routes.set("/repos/a/b/issues/1", issue(1, { parent_issue_url: "https://api.github.com/repos/c/d/issues/9" }));
     f.routes.set("/repos/a/b/issues/1/parent", foreign);
     f.routes.set("/repos/c/d/issues/9", foreign); f.routes.set("/repos/c/d/issues/9/comments?per_page=100", []);
-    f.routes.set("/repos/c/d/issues/9/parent", new GitHubError("request", null, 404));
+    f.routes.set("/repos/c/d/issues/9/parent", new GitHubError("request", null, 404, "no_parent_issue"));
     const c = await fetchIssueContext(f.api, config(), "a/b#1", start);
     expect(c.ancestors[0]!.issue.repository).toBe("c/d"); expect(c.managementIssue.id).toBe("1");
   });
   it("PR・改名・不正応答・権限不足・曖昧404は停止", async () => {
     for (const overrides of [{ pull_request: {} }, { parent_issue_url: undefined }, { parent_issue_url: "https://api.github.com/repos/c/d/issues/9" }, { id: 9007199254740992 }]) {
       const f = fixture(); f.routes.set("/repos/a/b/issues/1", issue(1, overrides));
+      f.routes.set("/repos/a/b/issues/1/parent", new GitHubError("request", null, 404));
       await expect(fetchIssueContext(f.api, config(), "a/b#1", start)).rejects.toThrow();
     }
     const f = fixture(); f.routes.set("/repos/a/b", { id: 10, full_name: "a/renamed" });
@@ -146,7 +171,10 @@ describe("Issue識別子と文脈取得", () => {
         if (endpoint.includes("&page=2")) return { code: fail ? 1 : 0, stdout: `HTTP/2 ${fail ? "403 Forbidden" : "200 OK"}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify([comment(2, "second")])}`, stderr: "" };
         if (endpoint.includes("comments?per_page=100")) return { code: 0, stdout: `HTTP/2 200 OK\r\nLink: <https://api.github.com${endpoint}&page=2>; rel="next"\r\n\r\n${JSON.stringify([comment(1, "first")])}`, stderr: "" };
         try { return { code: 0, stdout: `HTTP/2 200 OK\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(await f.api.get(endpoint))}`, stderr: "" }; }
-        catch { return { code: 1, stdout: "HTTP/2 404 Missing\r\nContent-Type: application/json\r\n\r\n{}", stderr: "" }; }
+        catch (error) {
+          if (!(error instanceof GitHubError) || error.reason !== "no_parent_issue") throw error;
+          return { code: 1, stdout: "HTTP/2 404 Missing\r\nContent-Type: application/json\r\n\r\n" + JSON.stringify({ message: "No parent issue found" }), stderr: "" };
+        }
       } });
     expect((await fetchIssueContext(api, config(), "a/b#1", start)).target.comments).toHaveLength(2);
     fail = true;

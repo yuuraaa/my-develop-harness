@@ -41,7 +41,7 @@ async function fixture() {
   const calls: string[] = [], prompts: string[] = [], phases: string[] = [], routes = new Map<string, unknown>();
   let labels = [...issue().labels], comments: unknown[] = [], worktree = "", threadCount = 0, planCount = 0;
   routes.set("/user", { login: "writer" }); routes.set("/repos/a/b", { id: 10, full_name: "a/b" });
-  routes.set("/repos/a/b/issues/1", issue()); routes.set("/repos/a/b/issues/1/parent", new GitHubError("request", null, 404));
+  routes.set("/repos/a/b/issues/1", issue()); routes.set("/repos/a/b/issues/1/parent", new GitHubError("request", null, 404, "no_parent_issue"));
   const behavior = {
     candidates: ["fix/login-validation"], implementation: true, failValidation: false,
     output: (_phase: string): unknown => null,
@@ -124,7 +124,7 @@ it("親の内容で命名した子の成果報告を依存証拠に使い、後�
   const f = await fixture(), first = f.store();
   const parent = issue(9, { title: "ログイン全体の入力検証", body: "兄弟Issueで入力検証を完成する" });
   f.routes.set("/repos/a/b/issues/9", parent);
-  f.routes.set("/repos/a/b/issues/9/parent", new GitHubError("request", null, 404));
+  f.routes.set("/repos/a/b/issues/9/parent", new GitHubError("request", null, 404, "no_parent_issue"));
   f.routes.set("/repos/a/b/issues/9/sub_issues?per_page=100", [issue(1), issue(2)]);
   const parentUrl = "https://api.github.com/repos/a/b/issues/9";
   f.routes.set("/repos/a/b/issues/1", issue(1, { parent_issue_url: parentUrl }));
