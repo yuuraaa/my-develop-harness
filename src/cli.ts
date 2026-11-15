@@ -19,16 +19,18 @@ import { retrospective, pageRetrospective, ShowArgumentError } from "./retrospec
 import { collectHistory, formatHistory } from "./history.js";
 import type { HistoryOptions } from "./history.js";
 import { diagnose, formatDoctor } from "./doctor.js";
-import { loadGitHubConfig, githubTokens, GitHubConfigError } from "./github-config.js";
+import { loadGitHubConfig, githubTokens, GitHubConfigError, repositoryNameSchema } from "./github-config.js";
 import { normalizeIssueReference, IssueContextError } from "./github-issue.js";
 import { runIssueWorkflow, type IssueRunOptions } from "./github-workflow.js";
-import { GitHubError } from "./github.js";
+import { GitHubClient, GitHubError } from "./github.js";
+import { createRepositoryLabels, type LabelCreateApi } from "./labels-create.js";
 import { WorkspaceError } from "./github-workspace-store.js";
 import { WorkflowError } from "./workflow-error.js";
 import type { GitHubWorkflowStopped } from "./github-control.js";
 
 export type ExitCode = 0 | 1 | 2;
 export type CliOptions = {
+  labelsApi?: LabelCreateApi;
   issueRun?: (options: IssueRunOptions) => Promise<"running" | "completed" | "stopped" | "blocked">;
   watchApi?: import("./github-issue.js").IssueApi;
   inspectIssue?: typeof import("./github-diagnostics.js").inspectIssue;
@@ -83,6 +85,7 @@ export async function executeCli(args = process.argv.slice(2), options: CliOptio
   harness show 00000000-0000-4000-8000-000000000001 --phase review:1
   harness history --issue 'owner/repo#123' --status stopped --limit 10
   harness history --all
+  harness labels create owner/repo
   harness doctor
   harness doctor 'owner/repo#123' --repo /path/to/repository --json
   harness --config /path/to/config.json run 'owner/repo#123' --repo /path/to/repository
@@ -99,6 +102,21 @@ historyは実行一覧、statusは保存された現在状態、showは実行の
     if (!runIdSchema.safeParse(id).success) throw new GitHubConfigError();
     return new RunStore(id, root, secrets);
   };
+  program.command("labels").description("リポジトリのラベルを準備")
+    .command("create <repository>").description("設定github.labelsの6種類を不足分だけ作成（既存は変更しない）")
+    .addHelpText("after", "\n例: harness labels create owner/repo\n    harness --config /path/to/config.json labels create owner/repo\n")
+    .action(async (repository: string) => {
+      const parsed = repositoryNameSchema.safeParse(repository);
+      if (!parsed.success) { err("リポジトリをOWNER/REPO形式で指定してください。\n"); code = 2; return; }
+      const config = await loadGitHubConfig(resolve(cwd, program.opts<{ config?: string }>().config ?? join(root, "config.json")));
+      const tokens = githubTokens(config, env);
+      secrets.push(tokens.read, tokens.write);
+      const api = options.labelsApi ?? await GitHubClient.create(config, { env });
+      out(`リポジトリ: ${parsed.data}\n`);
+      await createRepositoryLabels(api, parsed.data, config.github.labels, result =>
+        out(`${result.status === "created" ? "作成" : "スキップ（既存）"}: ${result.name}\n`));
+      code = 0;
+    });
   program.command("doctor [issue]").description("GitHub前提の起動前診断（読み取り専用）")
     .option("--repo <path>", "Git診断対象（省略時は設定から探索）")
     .option("--json", "診断結果をJSON表示")
