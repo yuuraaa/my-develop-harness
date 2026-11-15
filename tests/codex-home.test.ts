@@ -114,7 +114,7 @@ describe("ハーネスCodexホーム", () => {
         const result = JSON.parse(stdout);
         const decision = command[0] === "gh" ? command[1] === "api" ? "allow" : "forbidden"
           : command[0] === "docker" ? ["implementation", "fix"].includes(phase) ? "allow" : undefined
-          : ["push", "reset"].includes(command[1]!) ? "forbidden" : phase === "commit" ? "allow" : "forbidden";
+          : "forbidden";
         if (decision) expect(result.decision).toBe(decision);
         else expect(result.matchedRules).toEqual([]);
       }

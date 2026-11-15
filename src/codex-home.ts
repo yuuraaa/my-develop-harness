@@ -23,7 +23,7 @@ export function initialRules(phase: CodexPhase): string {
   for (const command of ["push", "merge", "rebase", "reset", "checkout", "switch", "restore", "clean", "cherry-pick", "revert", "fetch", "pull", "branch", "remote", "config", "update-ref", "worktree", "init", "clone", "rm", "mv", "apply", "am", "stash", "tag", "notes", "update-index", "read-tree", "write-tree", "commit-tree", "symbolic-ref", "gc", "prune", "reflog"]) {
     lines.push(rule(["git", command], "forbidden"));
   }
-  for (const command of ["add", "commit"]) lines.push(rule(["git", command], phase === "commit" ? "allow" : "forbidden"));
+  for (const command of ["add", "commit"]) lines.push(rule(["git", command], "forbidden"));
   lines.push(rule(["git", "commit", "--amend"], "forbidden"));
   if (phase !== "commit" && phase !== "report") {
     for (const prefix of [["docker", "info"], ["docker", "version"], ["docker", "compose", "ps"]]) lines.push(rule(prefix, "allow"));

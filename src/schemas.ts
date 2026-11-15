@@ -56,6 +56,12 @@ export const reviewSchema = z.strictObject({
   })),
   unverifiedItems: strings, blockers: strings,
 });
+/** Codexは計画だけを返す。SHAはハーネスが作成後に記録する。 */
+export const commitPlanSchema = z.strictObject({
+  summary: text,
+  commits: z.array(z.strictObject({ message: nonempty, paths: z.array(nonempty).min(1) })),
+  blockers: strings,
+});
 export const commitSchema = z.strictObject({ summary: text, commitHashes: z.array(sha), blockers: strings })
   .refine(v => v.commitHashes.length > 0 || v.blockers.length > 0, { message: "成果コミットまたは具体的なblockersが必要" });
 export const outputSchema = z.strictObject({ text: z.string().max(65536), truncated: z.boolean(), omittedReason: text.nullable() })

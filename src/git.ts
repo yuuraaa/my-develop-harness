@@ -39,6 +39,8 @@ export async function captureWorktreeTree(path: string): Promise<string> {
     const git = async (args: string[]) => (await exec("git", ["-c", "core.hooksPath=/dev/null", "-c", "submodule.recurse=false", ...args],
       { cwd: path, env: { ...env, GIT_INDEX_FILE: index }, maxBuffer: 4 * 1024 * 1024 })).stdout;
     await git(["add", "--all", "--", ":/"]);
+    // コピー先indexの新しいmtimeでracyなstat情報を信用しないよう、全内容を再読する。
+    await git(["add", "--renormalize", "--", ":/"]);
     const tree = (await git(["write-tree"])).trim();
     if (!/^[a-f0-9]{40,64}$/.test(tree)) throw new Error();
     return tree;
@@ -60,6 +62,32 @@ export async function fingerprintWorktreeContents(path: string, git: GitCommand 
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
   return hash.digest("hex");
+}
+
+/** 全計画を検証してから、レビュー済みのファイル単位でコミットする。失敗時は巻き戻さない。 */
+export async function executeCommitPlan(path: string, reviewedTree: string,
+  commits: { message: string; paths: string[] }[], git: GitCommand = runGit,
+  identity?: { name: string; email: string }): Promise<void> {
+  const fail = () => { throw new WorkflowError("fatal", "コミット計画がレビュー済みの変更ファイルと不一致"); };
+  const head = (await git(path, ["rev-parse", "HEAD"])).trim();
+  if (await captureWorktreeTree(path) !== reviewedTree) fail();
+  const changed = (await git(path, ["diff", "--name-only", "--no-renames", "-z", head, reviewedTree])).split("\0").filter(Boolean);
+  const planned = commits.flatMap(commit => commit.paths);
+  if (new Set(planned).size !== planned.length || planned.length !== changed.length
+    || planned.some(file => !changed.includes(file) || file.startsWith("/") || file.split("/").some(part => !part || part === "." || part === ".."))
+    || commits.some(commit => !commit.paths.length || !commit.message.trim() || commit.message.includes("\0"))) fail();
+  if (!commits.length) return;
+  const contents = await fingerprintWorktreeContents(path, git);
+  // 部分ステージ済みの内容を取り込まないよう、indexだけをHEADに揃える。実ファイルは保持する。
+  await git(path, ["read-tree", "HEAD"]);
+  for (const commit of commits) {
+    if (await fingerprintWorktreeContents(path, git) !== contents) fail();
+    await git(path, ["add", "--all", "--", ...commit.paths.map(file => `:(literal)${file}`)]);
+    const staged = (await git(path, ["diff", "--cached", "--name-only", "--no-renames", "-z"])).split("\0").filter(Boolean);
+    if (staged.length !== commit.paths.length || staged.some(file => !commit.paths.includes(file))) fail();
+    await git(path, [...(identity ? ["-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`] : []),
+      "commit", "-m", commit.message]);
+  }
 }
 
 /** baseからの直線的な追加履歴のみを許可し、各commitの対象パスも照合する。 */
