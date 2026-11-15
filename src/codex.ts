@@ -4,9 +4,9 @@ import { Codex, type Thread, type ThreadOptions } from "@openai/codex-sdk";
 import { z } from "zod";
 import { StorageError } from "./state.js";
 import { WorkflowError, WorkflowStopped, type DevelopmentControl, developmentIdentity, developmentBranch, developmentHead } from "./workflow.js";
-import { runGit, readHeadBranch, fingerprintWorktree, fingerprintWorktreeContents, captureWorktreeTree, verifyResultCommits, type GitCommand } from "./git.js";
+import { runGit, readHeadBranch, fingerprintWorktree, fingerprintWorktreeContents, captureWorktreeTree, verifyResultCommits, executeCommitPlan, type GitCommand } from "./git.js";
 import { planOutputSchema, reviewSchema, reviewInputSchema, issueInputSchema,
-  commitSchema, type IssueInput } from "./schemas.js";
+  commitSchema, commitPlanSchema, type IssueInput } from "./schemas.js";
 import { CodexHomeError, initializeCodexHome, readPhaseSettings, type CodexPhase } from "./codex-home.js";
 import { CodexPathError, resolveCodexPath } from "./codex-path.js";
 import { applyValidationUpdates, ValidationUpdateError } from "./verification.js";
@@ -221,7 +221,7 @@ export class CodexPhases {
   constructor(private readonly options: {
     control: DevelopmentControl; connection: PhaseConnection;
     block?: (reasons: string[]) => Promise<never>;
-    git?: GitCommand; warningAfterMs?: number;
+    git?: GitCommand; gitIdentity?: { name: string; email: string }; warningAfterMs?: number;
   }) { this.git = options.git ?? runGit; }
 
   private async phase<T extends z.ZodType, U>(phase: Phase, schema: T,
@@ -262,13 +262,13 @@ export class CodexPhases {
         await checkHistory();
         const before = await fingerprintWorktree(state.worktreePath, this.git);
         const payload = await input();
-        const prompt = `${phase}フェーズ\n${constraints.join("\n")}\n${readonly ? "ファイル変更・commitを行わず調査結果のみ返す。" : phase === "commit" ? "コミット結果とSHAを返す。" : "変更内容・検証コマンドの追加変更削除と根拠・残課題を返す。"}\n`
+        const prompt = `${phase}フェーズ\n${constraints.join("\n")}\n${readonly ? "ファイル変更・commitを行わず調査結果のみ返す。" : phase === "commit" ? "コミット計画だけを返す。Gitの書き込み操作は禁止。" : "変更内容・検証コマンドの追加変更削除と根拠・残課題を返す。"}\n`
           + (phase === "plan" ? "依存導入・コンテナ起動等の準備(kind=prepare)、テスト・型チェック・ビルドを実行順に検出し、起動cwd・実行環境・根拠・必須性・未検出事項を記録する。各commandはworktree内のcwdからそのまま実行する。コンテナ等の間接実行では対象runのworktreeのコードを使うことをマウント・実パス等で確認するガードをcommandに含め、確認失敗時は非ゼロで停止する。手順の失敗をシェルで握り潰さない。環境や権限の不足は具体的な操作・理由を記録し、権限昇格しない。\n"
             + "Planは準備・検証の実行成功を前提にしない。Planで実行できない準備・検証も、リポジトリの指示から実行可能なvalidationPlanとしてハーネスへ渡す。拒否された操作・観測した終了コード/stderr・ルールやsandboxの根拠・原因の不明点・許可された代替調査・ハーネスでの未確認事項をsummary/stepsと該当手順のevidence/executionMethodへ記録する。コマンドを発見済みの未実行と、未検出のundetectedValidationを区別する。\n"
             + "許可された調査と可能な実装を進められ、残りをハーネスの準備・正式検証で確認できるならblockersは空にする。Plan内でDockerに接続できないことだけをblockersにしない。必須性を下げたり検証を成功扱いにしたりせず、Implementation後のハーネス実行で成否を確定する。ハーネスでも必須手順が権限不足となれば結果と後続未実施を保存して安全停止する。人間の対応なしでは計画・実装にも進めない具体的理由がある場合はblockersに残す。\n" : "")
           + (["plan", "implementation", "fix"].includes(phase) ? 'workingDirectoryはworktree内の相対パス（ルートは"."）。内容変更はupdate、削除はID指定。追加はadd、add/updateは{operation:"add"または"update",definition:{id,kind,command,workingDirectory,executionMethod,evidence,required},reason}、removeは{operation:"remove",id:"prepare-image",reason:"実行順を変更"}。削除前定義を転記しない。\n' : "")
           + (phase === "review" ? "Plan自体と累積全差分を検査。必須検証の失敗・未実施・原因不明はmajor以上。指摘のvalidationCommandIdsに今回の検証コマンドIDを列挙する（複数可、一般のコード指摘は空配列）。locationは人間向けのファイル・行・説明またはnullとし、IDの対応判定には使わない。必須確認の削除・弱体化、未検出、未確認、秘密情報の除外を検査する。\n" : "")
-          + (phase === "commit" ? "レビュー合格済み。ファイル内容を変更せず、Git index操作と論理単位の1件または複数commitだけを行う。空commitは禁止。コミット規約に従い、SHAを作成順にcommitHashesで返す。Issue再実行ではbaseCommitからの既存コミットも全件返す。追加変更がなければ空commitは作らず既存成果を返し、HEADがbaseCommitと同じ場合はHEADだけを返す。push・merge・rebase・amend・reset・既存履歴の変更・自動修正は禁止。\n" : "")
+          + (phase === "commit" ? "レビュー合格済み。Git操作は読み取りのみ許可する。git add・git commit・index操作・ファイル変更・履歴変更は禁止。コミット作成はハーネスが行う。changedPathsを重複・漏れなくファイル単位で分割し、commitsに作成順で{message,paths}を返す。同じファイルを複数コミットに分割しない。pathsはworktreeルートからの正確な相対パス。メッセージはリポジトリのコミット規約に従う。変更がなければcommitsは空配列。Git書き込み権限は不要なので、その不足をblockersにしない。\n" : "")
           + JSON.stringify({ worktreePath: state.worktreePath, constraints, input: payload });
         if (phase === "fix") await control.recordFix(attempt);
         await control.recordPhase(phase, "running", { attempt });
@@ -305,7 +305,7 @@ export class CodexPhases {
           }, warningAfterMs);
           try {
             const currentConnection = connection.prepare ? await connection.prepare(phase) : connection;
-            const thread = readonly ? currentConnection.start(true) : currentConnection.resume(state.codexThreadId!);
+            const thread = readonly ? currentConnection.start(true) : phase === "commit" ? currentConnection.resume(state.codexThreadId!, true) : currentConnection.resume(state.codexThreadId!);
             currentThreadId = thread.id;
             if (readonly && thread.id !== null || !readonly && thread.id !== state.codexThreadId) throw new CodexError("configuration");
             const value = await runStructured(thread, prompt, schema, async event => {
@@ -346,8 +346,8 @@ export class CodexPhases {
               || value.threadId !== control.snapshot().codexThreadId && phase !== "plan" && phase !== "review" && phase !== "report"
               || phase === "report" && value.threadId !== reportThreadId
               || phase === "review" && !control.snapshot().reviewThreadIds.includes(value.threadId)) throw new CodexError("response");
-            if (phase !== "commit") await checkHistory();
-            if (readonly && await fingerprintWorktree(state.worktreePath, this.git) !== before) throw new WorkflowError("fatal", "読み取りフェーズでGit内容変更を検出");
+            await checkHistory();
+            if ((readonly || phase === "commit") && await fingerprintWorktree(state.worktreePath, this.git) !== before) throw new WorkflowError("fatal", "読み取りフェーズでGit内容変更を検出");
             return value.output;
           } catch (error) {
             if (!failureDiagnosed && !(error instanceof StorageError) && !(error instanceof WorkflowStopped) && !(error instanceof WorkflowError)) {
@@ -496,7 +496,7 @@ export class CodexPhases {
   commit() {
     const { control } = this.options;
     let reviewedContents: string;
-    return this.phase("commit", commitSchema, async () => {
+    return this.phase("commit", commitPlanSchema, async () => {
       const state = control.snapshot();
       const attempt = state.reviewThreadIds.length;
       const saved = await control.store.loadReviewInput(attempt);
@@ -511,16 +511,19 @@ export class CodexPhases {
       await control.store.appendEvent({ timestamp: new Date().toISOString(), type: "git.commit_input", phase: state.phase,
         data: { reviewedTreeId: state.reviewedTreeId, reviewedContents } });
       return { ...saved.input, cumulativeDiff: saved.diff, review, reviewedTreeId: state.reviewedTreeId,
-        splittingPolicy: "関連する実装とテストを論理単位でまとめる。分割が不要なら1件とし、ファイル内容は変更しない。" };
+        changedPaths: (await this.git(state.worktreePath, ["diff", "--name-only", "--no-renames", "-z", "HEAD", state.reviewedTreeId!])).split("\0").filter(Boolean),
+        splittingPolicy: "関連する実装とテストをファイル単位でまとめる。同一ファイルの部分分割は禁止。Gitの書き込みはハーネスが行う。" };
     }, async output => {
       if (output.blockers.length) await this.block(output.blockers);
+      await control.store.appendEvent({ timestamp: new Date().toISOString(), type: "git.commit_plan", phase: "commit", data: output });
+      const state = control.snapshot();
+      await executeCommitPlan(state.worktreePath, state.reviewedTreeId!, output.commits, this.git, this.options.gitIdentity);
       const commits = await verifyResultCommits(control.snapshot(), this.git);
       if (await fingerprintWorktreeContents(control.snapshot().worktreePath, this.git) !== reviewedContents) {
         throw new WorkflowError("fatal", "コミット工程で実ファイルの内容・属性が変更された");
       }
-      if (JSON.stringify(commits) !== JSON.stringify(output.commitHashes)) throw new WorkflowError("fatal", "Codex申告とGit成果コミットが不一致");
       await control.recordCommitState({ reviewedTreeId: control.snapshot().reviewedTreeId, resultCommits: commits });
-      return commitSchema.parse(await control.store.saveArtifact("commit", output));
+      return commitSchema.parse(await control.store.saveArtifact("commit", { summary: output.summary, commitHashes: commits, blockers: [] }));
     }, 1);
   }
 

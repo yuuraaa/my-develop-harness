@@ -46,10 +46,10 @@ Codex CLI / SDK 0.162.1を使用する。普段使いのCodexでログインし�
 | Implementation / Fix | workspace-write（worktree） | 読み取り、add/commit禁止 | 上記に加えcompose up/build/exec/run |
 | Verification | ハーネスが実行 | 変更は前後検査 | Codexの.rules対象外 |
 | Review | read-only | 読み取り、add/commit禁止 | info、version、compose ps |
-| Commit | read-only。git add/commitの実行をルールで許可 | add/commit可、ソース変更禁止 | 追加allowなし |
+| Commit（計画のみ） | read-only | 読み取り、add/commit禁止 | 追加allowなし |
 | Report | read-only | 読み取り、add/commit禁止 | 追加allowなし |
 
-各ファイルにgit status/diff/log/show/rev-parse/ls-files/ls-treeのallowと、変更系Gitコマンドのforbiddenを明記する。branch/remoteは更新用引数も持つため初期allowには含めない。push/merge/rebase/reset等の履歴・共有状態操作、checkout/switch/restore/clean、fetch/pull、branch/remote/config/worktree/init/clone、rm/mv/apply/am/stash/tag/notes、update-ref/update-index/read-tree/write-tree/commit-tree/symbolic-ref/gc/prune/reflogを全フェーズで禁止する。Commitでも`git commit --amend`を禁止する。ファイルを分け、ImplementationとFixも独立して編集できる。
+各ファイルにgit status/diff/log/show/rev-parse/ls-files/ls-treeのallowと、変更系Gitコマンドのforbiddenを明記する。branch/remoteは更新用引数も持つため初期allowには含めない。push/merge/rebase/reset等の履歴・共有状態操作、checkout/switch/restore/clean、fetch/pull、branch/remote/config/worktree/init/clone、rm/mv/apply/am/stash/tag/notes、update-ref/update-index/read-tree/write-tree/commit-tree/symbolic-ref/gc/prune/reflogを全フェーズで禁止する。Commitも含め全フェーズで`git add`・`git commit`・`git commit --amend`を禁止する。ファイルを分け、ImplementationとFixも独立して編集できる。
 
 .rulesはコマンドprefixに対する制御であり、任意のスクリプトや引数の意味を検証する機構ではない。allowされたコマンドはサンドボックス外で実行され得る。Gitの別表記・オプション位置・スクリプト経由やDockerの引数まで網羅的に制限するものではない。例として`git commit -m x --amend`は`git commit --amend`のprefixとは異なる。プロンプトの禁止指示、サンドボックスとハーネスの前後Git整合性検査を併用する。Dockerのallowは既存OS権限でDockerを操作できる環境に限って有効で、マウント先や特権指定を自動審査しない。編集者は許可を広げる影響を確認する。
 
@@ -60,3 +60,5 @@ Codex CLI / SDK 0.162.1を使用する。普段使いのCodexでログインし�
 プロジェクト信頼設定も上書きし、作業リポジトリと親ディレクトリのCodex設定・ルール・hooksを読み込ませない。AGENTS.md等の作業指示の読解とは別の制約。実行用ホームのrulesにはactive.rulesしか置かず、編集用ホームの6ルールをまとめてロードしない。OS管理者・組織が定めるシステムの設定やrequirementsは引き続きCodexの制約となる。
 
 モデルなど固定制約以外の設定はconfig.tomlで変更できる。`execution.model`を指定した場合はそちらが優先される。ハーネスが実行する準備・VerificationのコマンドにはCodexの.rulesとサンドボックスは適用されず、起動環境のOS権限・制限に従う。
+
+CommitではCodexがファイル単位のコミット計画（作成順のメッセージと相対パス一覧）だけを返す。ハーネスが全変更の重複・漏れ・対象外パスを検査し、レビュー後の変更がないことを確認してGit操作を実行する。既存の専用ホームのルールは上書きしないため、必要に応じてcommit.rulesのadd/commitもforbiddenに更新する。

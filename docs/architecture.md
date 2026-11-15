@@ -105,7 +105,7 @@ Review/Fix開始もSDK呼び出し前に停止する。検証中のCodex開始�
 
 指摘はseverity・description・validationCommandIds・locationを持つ。必須検証のfailed/skippedには対象IDを参照するmajor以上の指摘が必要。未知/重複ID、不整合なReviewは停止する。要件不足や重要な未確認事項をminorへ落として合格にしない。初回Review＋Fix最大3回、Review最大4回。SDK通信再試行とは別に数える。
 
-合格時のtreeと検証時の指紋を保存する。Commit前後で累積履歴・各変更パス・最終tree・未コミット変更・作業ブランチを照合する。レビュー前コミット、空commit、merge、履歴改変、ソース変更は認めない。変更不要の再実行は既存の成果を報告する。
+合格時のtreeと検証時の指紋を保存する。Codexは読み取り専用で、コミット計画（メッセージとファイル一覧）だけを返す。ハーネスは全変更が重複・漏れなく含まれることを確認し、ファイル単位でステージ・コミットする。同一ファイル内の部分分割は行わない。計画をイベントに保存してから実行し、途中失敗時は作成済みコミットと残りの変更を保持して停止する。設定されたexecution.gitIdentityはハーネスのコミットにも適用する。Commit前後で累積履歴・各変更パス・最終tree・未コミット変更・作業ブランチを照合する。レビュー前コミット、空commit、merge、履歴改変、ソース変更は認めない。変更不要の再実行は既存の成果を報告する。
 
 `github-report.ts` が保存済みの検証・Review・Git事実をReport出力と結合する。`github-submission.ts` が成果refを期待旧SHA付きでFFし、開始時remote照合・通常push・事後SHA照合・一件投稿・review更新を順に行う。[提出と部分成功](submission.md)を参照。応答不明を盲目的に再送しない。
 

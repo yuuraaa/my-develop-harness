@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, unlink } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ThreadEvent, TurnOptions } from "@openai/codex-sdk";
-import { runGit } from "../src/git.js";
+import { captureWorktreeTree, runGit } from "../src/git.js";
 import { parseGitHubConfig } from "../src/github-config.js";
 import { GitHubError } from "../src/github.js";
 import { RunStore, newRunId } from "../src/state.js";
@@ -100,9 +100,8 @@ async function fixture() {
         if (phase === "report") output ??= { summary: "入力検証を追加", changes: ["入力検証"],
           acceptanceCriteria: [{ criterion: "check.cjsが成功すること", result: "確認済み", evidence: "正式検証test成功・最終Review" }] };
         if (phase === "commit") {
-          if ((await runGit(worktree, ["status", "--porcelain"])).trim()) { await runGit(worktree, ["add", "."]); await runGit(worktree, ["commit", "-m", "🐛 入力検証"]); }
-          const hashes = (await runGit(worktree, ["rev-list", "--reverse", `${base}..HEAD`])).trim().split("\n").filter(Boolean);
-          output ??= { summary: "入力検証", commitHashes: hashes.length ? hashes : [base], blockers: [] };
+          const paths = (await runGit(worktree, ["diff", "--name-only", "--no-renames", "-z", "HEAD", await captureWorktreeTree(worktree)])).split("\0").filter(Boolean);
+          output ??= { summary: "入力検証", commits: paths.length ? [{ message: "🐛 入力検証", paths }] : [], blockers: [] };
         }
         yield { type: "item.completed", item: { id: "answer", type: "agent_message", text: JSON.stringify(output) } };
         yield { type: "turn.completed", usage };
@@ -294,7 +293,7 @@ it("commit工程で未レビューのファイルを追加・削除して最終t
     await runGit(f.worktree(), ["add", "-A"]); await runGit(f.worktree(), ["commit", "-m", "remove unreviewed"]);
   };
   expect(await f.run(s)).toBe("stopped"); const state = await s.loadGitHubState();
-  expect(state.resultCommits).toEqual([]); expect(state.error?.message).toContain("コミット後のGit整合性違反");
+  expect(state.resultCommits).toEqual([]); expect(state.error?.message).toContain("レビュー前のcommitまたは履歴・ブランチ変更を検出");
   expect((await runGit(f.worktree(), ["rev-parse", "HEAD^{tree}"])).trim()).toBe(state.reviewedTreeId!);
 });
 

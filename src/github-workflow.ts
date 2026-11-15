@@ -121,7 +121,7 @@ export async function runIssueWorkflow(options: IssueRunOptions): Promise<GitHub
       const connection = await (options.connection ? options.connection(prepared.worktreePath) : createCodexConnection({ worktreePath: prepared.worktreePath,
         github: config, ...(execution?.codexHome ? { codexHome: execution.codexHome } : {}),
         ...(execution?.model ? { model: execution.model } : {}), ...(options.env ? { env: options.env } : {}) }));
-      const phases = new CodexPhases({ control: flow, connection, git, block: flow.block });
+      const phases = new CodexPhases({ control: flow, connection, git, ...(execution?.gitIdentity ? { gitIdentity: execution.gitIdentity } : {}), block: flow.block });
       let accepted: Awaited<ReturnType<CodexPhases["issuePlan"]>> | undefined;
       prepared = await planIssueBranch(prepared, { root: store.root, git, transport, savePrepared, managementContent,
         plan: async request => {
