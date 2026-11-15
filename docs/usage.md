@@ -28,6 +28,23 @@ harness watch --interval 60
 
 認証は既存ghログインやSSH agentへフォールバックしない。書き込み用はハーネスのAPI/Git操作だけに使い、Codexへは専用読み取り用gh認証だけを渡す。認証の実権限は発行側で保証する。
 
+## 必要なラベルの作成
+
+対象リポジトリの初期準備として、明示的に実行する。
+
+```sh
+harness labels create OWNER/REPO
+harness --config /path/to/config.json labels create OWNER/REPO
+```
+
+`github.labels` の `enabled`・`ready`・`running`・`blocked`・`stopped`・`review` の6種類を対象に、不足するラベルだけを作成する。既定名はそれぞれ `harness:enabled` などで、設定で変更した名前も使用する。全ページの既存ラベルを大文字・小文字を区別せず照合し、既存の名前・色・説明は変更しない。新規ラベルの色は `ededed`、説明は指定しない。
+
+一覧取得・作成には既存の `github.writeTokenEnv` の認証を使用する。通常の設定検証に従い、異なる値の読み取り用認証も必要。外部 `gh` と対象repoへのIssues書き込み権限を用意する。ローカルcloneやCodexは不要で、watch一覧外のrepoも指定できる。[GitHubのラベルAPI](https://docs.github.com/en/rest/issues/labels#create-a-label)を参照。
+
+各ラベルの「作成」または「スキップ（既存）」を表示する。全件成功は終了0、API失敗は終了1、引数・設定・認証の不備は終了2。途中失敗時も完了済みの結果を残し、作成したラベルを取り消さない。再実行すると存在するラベルはスキップする。作成応答が不明な場合は存在を照合し、確認できなければ再送せず停止する。
+
+Issueへのラベル付与や実行記録の作成は行わない。`run`・`watch`・`doctor` はこの処理を自動実行せず、従来の動作を維持する。
+
 ## 手動runと再実行
 
 openかつenabled＋単一readyラベルの末端Issueが対象。担当者・優先度ラベルは条件にしない。依存Issueはcompletedとしてcloseされ、信頼できる最新成果報告と必要コミットの包含が確認できる必要がある。
