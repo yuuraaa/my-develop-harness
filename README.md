@@ -6,7 +6,7 @@ GitHub Issuesの要件から計画、実装、検証、独立レビュー、コ�
 
 実行環境にはGit、GitHub CLI（gh）、SDK互換のCodex CLIが必要です。ソース版はBun 1.4.3を使用します。単一バイナリ版はBunの導入を必要としません。
 
-1. examples/config.example.jsonを ~/.harness/config.json にコピーし、探索先と監視対象を設定します。
+1. examples/config.example.jsonを ~/.harness/config.json にコピーし、探索先と監視対象、`execution.gitIdentity`のコミット名・メールアドレスを設定します（[詳細](docs/usage.md#共通のgit作成者情報)）。
 2. .env.exampleに従って、読み取り用と書き込み用の異なるGitHubトークンを環境変数へ設定します。
 3. Codexの認証を準備し、HARNESS_CODEX_PATHにCLIの絶対パスを指定します。
 4. 対象リポジトリにharness用ラベルを作成し、doctorで接続と前提条件を確認します。

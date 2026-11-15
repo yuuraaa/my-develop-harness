@@ -52,6 +52,8 @@ pushは`<source>:refs/heads/<branch>`の一つの明示refを必須とし、暗�
 CodexのGitHub接続には`createCodexConnection({github, ...})`を使う。
 空の専用HOMEに読み取りGH_TOKENだけを渡し、MCPテーブルを空にし、ネットワークを有効にする。
 shell_environment_policyも固定し、読み取りgh環境をシェルへ継承させる。OpenAI用APIキーはシェル継承から外す。
+`execution.gitIdentity`指定時は作成者・コミッターの4環境変数もCodexとそのシェルへ渡す。
+書き込みtokenの値の混入と環境変数名の衝突は初期化前に拒否する。[設定手順](usage.md#共通のgit作成者情報)を参照。
 トークンをconfig.tomlや.rulesに書かない。初期ルールは`gh api --method GET`を許可し、
 auth/config/issue/pr等の操作は禁止する。既存.rulesは自動更新しないため、内容を確認する。
 

@@ -44,6 +44,22 @@ function success(text: string): ThreadEvent[] {
 }
 
 describe("Codex接続の境界", () => {
+  it("gitIdentityに書き込み認証の値や環境変数名が混入したら初期化前に拒否する", async () => {
+    for (const key of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"]) {
+      for (const field of ["name", "email", null]) {
+        const path = await directory();
+        const github = parseGitHubConfig({ schemaVersion: 2,
+          github: { writeTokenEnv: field === null ? key : "W", readTokenEnv: "R" },
+          execution: { gitIdentity: { name: "Bot", email: "bot@example.com", ...(field ? { [field]: "prefix-write-secret-suffix" } : {}) } },
+        }, "/tmp/config.json");
+        await expect(createCodexConnection({ worktreePath: path, github,
+          env: { HOME: path, R: "read-secret", W: "write-secret", [key]: "write-secret" } }))
+          .rejects.toThrow("configuration");
+        expect(await readdir(path)).toEqual([]);
+      }
+    }
+    expect(constructorSpy).not.toHaveBeenCalled();
+  });
   it("GitHub書き込み認証と継承候補の名前・値の衝突をSDK/ホーム初期化前に拒否する", async () => {
     const writer = "writer-collision-fixture";
     for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "PATH", "HOME", "TMPDIR", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR", "HARNESS_CODEX_PATH"]) {
@@ -80,6 +96,8 @@ describe("Codex接続の境界", () => {
       HOME: path, PATH: process.env.PATH!, R: "read-gh-fixture", W: "write-gh-fixture", GH_TOKEN: "ambient-write",
       GITHUB_TOKEN: "ambient-write", SSH_AUTH_SOCK: "/agent", HARNESS_TEST_SECRET_TOKEN: "old-write",
       OPENAI_API_KEY: "openai-key-fixture",
+      GIT_AUTHOR_NAME: "ambient-author", GIT_AUTHOR_EMAIL: "ambient@example.com",
+      GIT_COMMITTER_NAME: "ambient-committer", GIT_COMMITTER_EMAIL: "ambient@example.com",
     } });
     const startSpy = jest.spyOn(ActualCodex.prototype, "startThread");
     for (const phase of ["plan", "implementation", "fix", "review", "commit", "report"] as const) {
@@ -93,6 +111,9 @@ describe("Codex接続の境界", () => {
       expect(JSON.stringify(opts)).not.toContain("write-gh-fixture");
       expect(JSON.stringify(opts)).not.toContain("ambient-write");
       expect(opts.env!.SSH_AUTH_SOCK).toBeUndefined(); expect(opts.env!.HARNESS_TEST_READ_TOKEN).toBeUndefined();
+      for (const key of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"]) {
+        expect(opts.env![key]).toBeUndefined();
+      }
       expect(opts.configOverrides![0]).toBe("mcp_servers={}");
       const policy = opts.configOverrides!.find(v => v.startsWith("shell_environment_policy="))!;
       expect(policy).toContain('"GH_TOKEN"'); expect(policy).toContain('ignore_default_excludes=true');

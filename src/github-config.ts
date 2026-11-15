@@ -10,6 +10,7 @@ export class GitHubConfigError extends Error {
 export const repositoryNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.-]+$/)
   .refine(v => ![".", ".."].includes(v.split("/")[1]!)).transform(v => v.toLowerCase());
 const nonempty = z.string().refine(v => !/[\x00-\x1f\x7f]/.test(v)).transform(v => v.trim()).pipe(z.string().min(1));
+const gitIdentityValue = nonempty.refine(v => !/[\x80-\x9f]/.test(v));
 const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 const path = nonempty.refine(v => !v.startsWith("/") && !v.includes("\\") && !v.split("/").some(p => p === ".." || !p));
 const sources = z.discriminatedUnion("kind", [
@@ -41,7 +42,10 @@ export const githubConfigSchema = z.strictObject({
   watch: z.strictObject({ repositories: z.array(repositoryNameSchema).default([])
     .refine(v => new Set(v).size === v.length) }).prefault({}),
   repository: z.strictObject({ searchRoots: z.array(nonempty).min(1).optional(), cloneRoot: nonempty.optional() }).optional(),
-  execution: z.strictObject({ codexHome: nonempty.optional(), model: nonempty.optional() }).optional(),
+  execution: z.strictObject({
+    codexHome: nonempty.optional(), model: nonempty.optional(),
+    gitIdentity: z.strictObject({ name: gitIdentityValue, email: gitIdentityValue }).optional(),
+  }).optional(),
   show: showSettingsSchema.optional(),
 });
 export type GitHubConfig = z.infer<typeof githubConfigSchema>;
