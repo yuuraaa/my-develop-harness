@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { diagnose, formatDoctor, type DoctorOptions } from "../src/doctor.js";
 import { inspectIssue, apiCommitFiles } from "../src/github-diagnostics.js";
 import { parseGitHubConfig } from "../src/github-config.js";
-import { GitHubError } from "../src/github.js";
+import { GitHubClient, GitHubError } from "../src/github.js";
 import type { IssueApi } from "../src/github-issue.js";
 const roots: string[] = [];
 afterEach(async () => { for (const path of roots.splice(0)) await rm(path, { recursive: true, force: true }); });
@@ -16,7 +16,7 @@ async function fixture() {
   const issue = { id: 1, number: 1, html_url: "https://github.com/a/b/issues/1", title: "仕様", body: "要件", state: "open", state_reason: null,
     labels: ["harness:enabled", "harness:ready"], created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", parent_issue_url: null };
   const routes = new Map<string, unknown>([["/user", { login: "writer" }], ["/repos/a/b", { id: 10, full_name: "a/b", default_branch: "main" }],
-    ["/repos/a/b/issues/1", issue], ["/repos/a/b/issues/1/parent", new GitHubError("request", null, 404)],
+    ["/repos/a/b/issues/1", issue], ["/repos/a/b/issues/1/parent", new GitHubError("request", null, 404, "no_parent_issue")],
     ["/repos/a/b/issues/1/comments?per_page=100", []], ["/repos/a/b/issues/1/sub_issues?per_page=100", []], ["/repos/a/b/issues/1/dependencies/blocked_by?per_page=100", []],
     ["/repos/a/b/commits/main", { sha }], ["/repos/a/b/git/trees/" + sha + "?recursive=1", { truncated: false, tree: [{ path: "AGENTS.md", mode: "100644", type: "blob", sha: "b".repeat(40) }] }],
     [`/repos/a/b/git/blobs/${"b".repeat(40)}`, { encoding: "base64", content: Buffer.from("規約").toString("base64"), size: Buffer.byteLength("規約") }]]);
@@ -29,6 +29,22 @@ async function fixture() {
   return { root, config, issue, routes, calls, api, options };
 }
 describe("GitHub起動前診断", () => {
+  it.each(["No parent issue found", "Not Found"])("親URL省略時の実HTTP形式の404（%s）を区別して診断する", async message => {
+    const f = await fixture();
+    const { parent_issue_url: _, ...withoutParentUrl } = f.issue;
+    f.routes.set("/repos/a/b/issues/1", withoutParentUrl);
+    const api = await GitHubClient.create(f.config, { env: f.options.env, run: async (_program, args) => {
+      const endpoint = args.at(-1)!;
+      if (endpoint.endsWith("/parent")) return { code: 1, stdout: "HTTP/2 404 Not Found\r\nContent-Type: application/json\r\n\r\n" + JSON.stringify({ message }), stderr: "" };
+      return { code: 0, stdout: "HTTP/2 200 OK\r\nContent-Type: application/json\r\n\r\n" + JSON.stringify(await f.api.get(endpoint)), stderr: "" };
+    } });
+    const report = await diagnose({ ...f.options, api, issue: "a/b#1",
+      inspect: input => inspectIssue({ ...input, git: async () => { throw new Error("not git"); } }) });
+    expect(report.items.find(i => i.id === "issue.context")?.status).toBe(message === "No parent issue found" ? "正常" : "異常");
+    if (message === "No parent issue found") expect(report.items.find(i => i.id === "issue.eligibility")?.status).toBe("正常");
+    else expect(report.exitCode).toBe(1);
+    expect(await readdir(f.root)).toEqual(["config.json"]);
+  });
   it("clone不在でも開始SHAの資料と依存を診断し、保存先・clone・worktreeを作らない", async () => {
     const f = await fixture(), before = await readdir(f.root);
     const result = await inspectIssue({ api: f.api, config: f.config, root: f.root, issue: "a/b#1", git: async () => { throw new Error("not git"); } });

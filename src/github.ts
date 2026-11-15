@@ -5,7 +5,8 @@ import type { RunEvent } from "./schemas.js";
 
 export type GitHubFailure = "configuration" | "permission" | "request" | "response" | "transport" | "rate_limit" | "unknown" | "cancelled";
 export class GitHubError extends Error {
-  constructor(public readonly kind: GitHubFailure, public readonly retryAt: string | null = null, public readonly status: number | null = null) {
+  constructor(public readonly kind: GitHubFailure, public readonly retryAt: string | null = null, public readonly status: number | null = null,
+    public readonly reason: "no_parent_issue" | null = null) {
     super(`GitHub: ${kind}${retryAt ? `（再アクセス可能時刻: ${retryAt}）` : ""}`);
   }
 }
@@ -82,7 +83,18 @@ export class GitHubClient {
           failure = new GitHubError("rate_limit", retryTime(res.headers, this.now()));
         } else if (res.status === 401 || res.status === 403) failure = new GitHubError("permission");
         else if (res.status >= 500 || res.status === 408) failure = new GitHubError(method === "GET" ? "transport" : "unknown");
-        else failure = new GitHubError("request", null, res.status);
+        else {
+          // 生のエラー本文は保持せず、親なしの明示応答だけを識別する。
+          let reason: "no_parent_issue" | null = null;
+          if (method === "GET" && res.status === 404 && /^\/repos\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*\/parent$/.test(endpoint)) {
+            try {
+              const body: unknown = JSON.parse(res.body);
+              if (body !== null && typeof body === "object" && "message" in body && body.message === "No parent issue found")
+                reason = "no_parent_issue";
+            } catch { /* 不正・不明な応答は通常の404として停止する。 */ }
+          }
+          failure = new GitHubError("request", null, res.status, reason);
+        }
       } else {
         failure = new GitHubError(method !== "GET" ? "unknown" : result.code === 0 ? "response" : "transport");
       }

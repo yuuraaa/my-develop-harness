@@ -91,8 +91,10 @@ export class IssueReader {
         throw new IssueContextError("response");
       return parent;
     } catch (e) {
-      // 可視のIssue本体が親なしを明示する場合のみ404を採用。欠落・不可視の親は停止する。
-      if (e instanceof GitHubError && e.status === 404 && issue.parent_issue_url === null) return null;
+      // フィールド省略は親なしの証拠にならない。/parentの明示応答だけを採用し、
+      // 既知の親URLとの矛盾や、権限不足・不可視の親による一般的な404は停止する。
+      if (e instanceof GitHubError && e.kind === "request" && e.status === 404 && e.reason === "no_parent_issue"
+        && (issue.parent_issue_url === undefined || issue.parent_issue_url === null)) return null;
       throw e;
     }
   }
