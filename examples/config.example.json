@@ -18,5 +18,7 @@
   },
   "watch": { "repositories": ["example/product"] },
   "repository": { "searchRoots": ["../develop"], "cloneRoot": "../develop" },
-  "execution": {}
+  "execution": {
+    "gitIdentity": { "name": "Harness Bot", "email": "harness@example.com" }
+  }
 }

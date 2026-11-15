@@ -14,6 +14,22 @@ const reply = (status: number, body: unknown, headers = "") => ({ code: status <
   stdout: `HTTP/2.0 ${status} Status\r\nContent-Type: application/json\r\n${headers}\r\n${JSON.stringify(body)}`, stderr: "" });
 
 describe("GitHub新設定", () => {
+  it("gitIdentityは省略可能で、指定時は制御文字のないname/email両方が必須", () => {
+    expect(config().execution?.gitIdentity).toBeUndefined();
+    const parse = (gitIdentity: unknown) => parseGitHubConfig({ schemaVersion: 2, github: {}, execution: { gitIdentity } }, "/tmp/config.json");
+    expect(parse({ name: " Harness Bot ", email: " bot@example.com " }).execution?.gitIdentity)
+      .toEqual({ name: "Harness Bot", email: "bot@example.com" });
+    for (const invalid of [null, "bot", {}, { name: "Bot" }, { email: "bot@example.com" },
+      { name: "Bot", email: "bot@example.com", extra: true }, { name: 1, email: "bot@example.com" }]) {
+      expect(() => parse(invalid)).toThrow();
+    }
+    for (const key of ["name", "email"]) {
+      for (const value of ["", "   ", ...Array.from({ length: 32 }, (_, i) => `value${String.fromCharCode(i)}`),
+        ...Array.from({ length: 33 }, (_, i) => `value${String.fromCharCode(0x7f + i)}`)]) {
+        expect(() => parse({ name: "Bot", email: "bot@example.com", [key]: value })).toThrow();
+      }
+    }
+  });
   it("既定値・正規化・探索とwatchの分離・ファイル基準の相対パス", async () => {
     const c = parseGitHubConfig({ schemaVersion: 2, github: {}, watch: { repositories: ["Owner/Repo"] },
       repositories: { "Else/Other": { pushRemote: "upstream", requiredSources: [{ kind: "githubIssue", repository: "Docs/Spec", number: 1 }] } },

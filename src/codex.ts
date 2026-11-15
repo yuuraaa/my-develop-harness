@@ -37,6 +37,11 @@ export async function createCodexConnection(options: {
   env?: NodeJS.ProcessEnv;
 }): Promise<PhaseConnection> {
   const source = options.env ?? process.env;
+  const identity = options.github.execution?.gitIdentity;
+  const gitIdentityEnvironment: Record<string, string> = identity ? {
+    GIT_AUTHOR_NAME: identity.name, GIT_AUTHOR_EMAIL: identity.email,
+    GIT_COMMITTER_NAME: identity.name, GIT_COMMITTER_EMAIL: identity.email,
+  } : {};
   let worktreePath: string;
   let codexHome: string;
   let token = "";
@@ -50,6 +55,10 @@ export async function createCodexConnection(options: {
       // HOME等は初期化エラーやargvにも使うため、ファイル操作・SDK生成より前に検査する。
       for (const key of [...inheritedCodexEnvironment, "HARNESS_CODEX_PATH"]) {
         if (options.github.github.writeTokenEnv === key || source[key]?.includes(tokens.write)) throw new Error();
+      }
+      // 設定値も認証の別名・値を経由して書き込みトークンを漏らさない。
+      for (const [key, value] of Object.entries(gitIdentityEnvironment)) {
+        if (options.github.github.writeTokenEnv === key || value.includes(tokens.write)) throw new Error();
       }
       token = tokens.read;
     }
@@ -75,6 +84,7 @@ export async function createCodexConnection(options: {
   if (options.github) {
     Object.assign(env, await isolatedGitHubEnvironment(source, runtimeHome));
     env.GH_TOKEN = token;
+    Object.assign(env, gitIdentityEnvironment);
     await checkRepositoryCredentials(worktreePath, env);
   }
 
